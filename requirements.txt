@@ -1,0 +1,7 @@
+yfinance
+supabase
+pandas
+numpy
+scikit-learn
+joblib
+python-dotenv
