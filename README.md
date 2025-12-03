@@ -35,7 +35,7 @@ An automated machine learning system that generates weekly investment recommenda
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/weekly-fund-rec.git
+git clone https://github.com/yourusername/fund-rec.git
 cd fund-rec
 ```
 
