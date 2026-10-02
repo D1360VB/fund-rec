@@ -56,7 +56,7 @@ class FundRecommender:
         df['sma50_to_sma200'] = df['sma_50'] / df['sma_200']
         
         # Fill NaN values
-        df = df.fillna(method='bfill').fillna(method='ffill')
+        df = df.bfill().ffill()
         
         return df
     
