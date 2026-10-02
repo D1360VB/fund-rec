@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fund Rec - Recomendaciones Semanales</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js CDN (opcional, para gráficos) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Supabase JS SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    /* Fuente moderna (opcional) */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <h1 class="text-2xl font-bold text-gray-900">📈 Fund Rec</h1>
+      <p class="text-sm text-gray-500 mt-1">Recomendaciones semanales basadas en Machine Learning</p>
+    </div>
+  </header>
+
+  <!-- Contenido principal -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    
+    <!-- Sección: Recomendaciones de la semana actual -->
+    <section class="mb-12">
+      <h2 class="text-xl font-semibold text-gray-900 mb-4">Recomendaciones de esta semana</h2>
+      <div id="current-recommendations" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- Las tarjetas se insertarán aquí dinámicamente -->
+        <div class="text-gray-400 text-center py-12 col-span-full">Cargando recomendaciones...</div>
+      </div>
+    </section>
+
+    <!-- Sección: Rendimiento histórico -->
+    <section>
+      <h2 class="text-xl font-semibold text-gray-900 mb-4">Rendimiento histórico</h2>
+      <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <div class="mb-4">
+          <p class="text-sm text-gray-500">Precisión de las recomendaciones en las últimas 12 semanas</p>
+        </div>
+        <!-- Contenedor para el gráfico de precisión -->
+        <div class="h-64">
+          <canvas id="performance-chart"></canvas>
+        </div>
+        <!-- Tabla resumen (opcional) -->
+        <div id="performance-summary" class="mt-6 text-sm text-gray-600">
+          <!-- Se llenará dinámicamente -->
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t border-gray-200 mt-12">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-center text-sm text-gray-500">
+      Fund Rec · Datos actualizados semanalmente
+    </div>
+  </footer>
+
+  <script>
+    // =================================================================
+    // 1. CONFIGURACIÓN DE SUPABASE
+    // =================================================================
+    // Reemplaza con tus credenciales reales de Supabase
+    const SUPABASE_URL = 'https://ruddtbvxpizziazzhtyh.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1ZGR0YnZ4cGl6emlhenpodHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2MjY4NjUsImV4cCI6MjA4MDIwMjg2NX0.CS9JYxdgHRdhSBE06h5e2WKQgyGjkSrEttx9f0tRLtw';
+
+    const { createClient } = supabase;
+    const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // =================================================================
+    // 2. FUNCIONES PARA OBTENER DATOS
+    // =================================================================
+
+    /**
+     * Obtiene las recomendaciones más recientes de la tabla 'recommendations'.
+     * Asumimos que cada fila tiene: id, fund_symbol, fund_name, recommendation,
+     * confidence, created_at.
+     */
+    async function fetchCurrentRecommendations() {
+      const { data, error } = await supabaseClient
+        .from('recommendations')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(15); // Ajusta según tus necesidades
+
+      if (error) {
+        console.error('Error fetching recommendations:', error);
+        return [];
+      }
+      return data;
+    }
+
+    /**
+     * Obtiene el rendimiento histórico. Esto es un ejemplo hipotético.
+     * Necesitarías una tabla que registre el resultado de cada recomendación
+     * después de un período (ej. 1 semana). Si no la tienes, tendrías que
+     * crearla con un script en Python.
+     */
+    async function fetchHistoricalPerformance() {
+      // Ejemplo: consultar una vista o tabla 'recommendation_performance'
+      const { data, error } = await supabaseClient
+        .from('recommendation_performance')
+        .select('week_start, correct_predictions, total_predictions')
+        .order('week_start', { ascending: true })
+        .limit(12);
+
+      if (error) {
+        console.warn('No se pudo cargar el rendimiento histórico:', error);
+        return [];
+      }
+      return data;
+    }
+
+    // =================================================================
+    // 3. RENDERIZADO DE LA INTERFAZ
+    // =================================================================
+
+    /**
+     * Crea el HTML de una tarjeta de recomendación.
+     * @param {Object} rec - Objeto con los datos de la recomendación.
+     */
+    function renderRecommendationCard(rec) {
+      // Mapeo de recomendación a colores y etiquetas
+      const styles = {
+        'Strong Buy': { bg: 'bg-green-100', text: 'text-green-800', label: 'Fuerte Compra' },
+        'Buy': { bg: 'bg-green-50', text: 'text-green-700', label: 'Compra' },
+        'Hold': { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Mantener' },
+        'Sell': { bg: 'bg-red-50', text: 'text-red-700', label: 'Venta' },
+        'Strong Sell': { bg: 'bg-red-100', text: 'text-red-800', label: 'Fuerte Venta' },
+      };
+      const style = styles[rec.recommendation] || styles['Hold'];
+
+      // Formatear fecha
+      const date = new Date(rec.created_at).toLocaleDateString('es-ES', {
+        year: 'numeric', month: 'short', day: 'numeric'
+      });
+
+      return `
+        <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div class="flex justify-between items-start">
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900">${rec.fund_symbol}</h3>
+              <p class="text-sm text-gray-500">${rec.fund_name || ''}</p>
+            </div>
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}">
+              ${style.label}
+            </span>
+          </div>
+          <div class="mt-4 flex items-center justify-between text-sm">
+            <span class="text-gray-500">Confianza</span>
+            <span class="font-medium text-gray-900">${(rec.confidence * 100).toFixed(1)}%</span>
+          </div>
+          <div class="mt-2 text-xs text-gray-400">${date}</div>
+        </div>
+      `;
+    }
+
+    /**
+     * Renderiza todas las recomendaciones en el contenedor.
+     * @param {Array} recommendations - Lista de objetos de recomendación.
+     */
+    function renderRecommendations(recommendations) {
+      const container = document.getElementById('current-recommendations');
+      if (!recommendations || recommendations.length === 0) {
+        container.innerHTML = '<div class="text-gray-400 text-center py-12 col-span-full">No hay recomendaciones disponibles.</div>';
+        return;
+      }
+      container.innerHTML = recommendations.map(renderRecommendationCard).join('');
+    }
+
+    /**
+     * Renderiza el gráfico de rendimiento histórico con Chart.js.
+     * @param {Array} performanceData - Lista de objetos con week_start, correct_predictions, total_predictions.
+     */
+    function renderPerformanceChart(performanceData) {
+      const ctx = document.getElementById('performance-chart').getContext('2d');
+      
+      // Si no hay datos, mostrar un mensaje
+      if (!performanceData || performanceData.length === 0) {
+        document.getElementById('performance-chart').parentElement.innerHTML = 
+          '<p class="text-gray-400 text-center py-12">Datos de rendimiento no disponibles.</p>';
+        return;
+      }
+
+      const labels = performanceData.map(d => {
+        const date = new Date(d.week_start);
+        return date.toLocaleDateString('es-ES', { month: 'short', day: 'numeric' });
+      });
+      const accuracyData = performanceData.map(d => 
+        d.total_predictions > 0 ? (d.correct_predictions / d.total_predictions) * 100 : 0
+      );
+
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Precisión (%)',
+            data: accuracyData,
+            borderColor: '#18181b', // zinc-900
+            backgroundColor: 'rgba(24, 24, 27, 0.1)',
+            tension: 0.3,
+            fill: true,
+            pointBackgroundColor: '#18181b',
+            pointRadius: 4,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: 100,
+              ticks: { callback: value => value + '%' }
+            }
+          },
+          plugins: {
+            legend: { display: false }
+          }
+        }
+      });
+    }
+
+    /**
+     * Actualiza el resumen de rendimiento en texto.
+     * @param {Array} performanceData
+     */
+    function renderPerformanceSummary(performanceData) {
+      const container = document.getElementById('performance-summary');
+      if (!performanceData || performanceData.length === 0) {
+        container.innerHTML = '';
+        return;
+      }
+      // Calcular precisión promedio de las últimas semanas
+      const totalCorrect = performanceData.reduce((sum, d) => sum + d.correct_predictions, 0);
+      const totalPredictions = performanceData.reduce((sum, d) => sum + d.total_predictions, 0);
+      const avgAccuracy = totalPredictions > 0 ? (totalCorrect / totalPredictions) * 100 : 0;
+
+      container.innerHTML = `
+        <div class="flex justify-between items-center">
+          <span>Precisión promedio (últimas ${performanceData.length} semanas)</span>
+          <span class="font-semibold text-gray-900">${avgAccuracy.toFixed(1)}%</span>
+        </div>
+      `;
+    }
+
+    // =================================================================
+    // 4. INICIALIZACIÓN
+    // =================================================================
+    async function init() {
+      // Cargar recomendaciones actuales
+      const recommendations = await fetchCurrentRecommendations();
+      renderRecommendations(recommendations);
+
+      // Cargar y renderizar rendimiento histórico
+      const performanceData = await fetchHistoricalPerformance();
+      renderPerformanceChart(performanceData);
+      renderPerformanceSummary(performanceData);
+    }
+
+    // Ejecutar al cargar la página
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
