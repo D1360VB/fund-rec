@@ -6,7 +6,7 @@ Handles all Supabase database operations
 import os
 from supabase import create_client, Client
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 class DatabaseManager:
     def __init__(self):
@@ -140,3 +140,67 @@ class DatabaseManager:
             .limit(50)\
             .execute()
         return response.data
+    
+    def get_unevaluated_recommendations(self, min_days_old: int = 5) -> List[Dict]:
+        """
+        Devuelve recomendaciones que tienen al menos `min_days_old` días
+        y que aún no han sido evaluadas en recommendation_outcomes.
+        """
+        from datetime import datetime, timedelta
+        
+        cutoff_date = (datetime.now() - timedelta(days=min_days_old)).date().isoformat()
+        
+        # Query: todas las recomendaciones antiguas que NO estén en outcomes
+        response = self.supabase.table('recommendations') \
+            .select('*') \
+            .lte('week_start', cutoff_date) \
+            .order('week_start', desc=False) \
+            .execute()
+        
+        if not response.data:
+            return []
+        
+        # Filtrar las que ya están evaluadas
+        rec_ids = [r['id'] for r in response.data]
+        evaluated_response = self.supabase.table('recommendation_outcomes') \
+            .select('recommendation_id') \
+            .in_('recommendation_id', rec_ids) \
+            .execute()
+        
+        evaluated_ids = {e['recommendation_id'] for e in (evaluated_response.data or [])}
+        
+        pending = [r for r in response.data if r['id'] not in evaluated_ids]
+        return pending
+
+
+    def get_price_on_date(self, fund_symbol: str, target_date: str) -> Optional[float]:
+        """
+        Devuelve el precio de cierre de un fondo en una fecha específica
+        (o el más cercano hacia adelante si no hay dato exacto).
+        """
+        response = self.supabase.table('fund_metrics') \
+            .select('close_price, date') \
+            .eq('fund_symbol', fund_symbol) \
+            .gte('date', target_date) \
+            .order('date', desc=False) \
+            .limit(1) \
+            .execute()
+        
+        if response.data:
+            return float(response.data[0]['close_price'])
+        return None
+
+
+    def insert_recommendation_outcomes(self, outcomes: List[Dict]) -> bool:
+        """
+        Inserta una lista de outcomes en la tabla recommendation_outcomes.
+        """
+        if not outcomes:
+            return True
+        
+        try:
+            self.supabase.table('recommendation_outcomes').insert(outcomes).execute()
+            return True
+        except Exception as e:
+            print(f"✗ Error inserting outcomes: {e}")
+            return False

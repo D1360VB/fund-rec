@@ -72,7 +72,7 @@ class FundDataCollector:
         """Fetch historical data for a fund"""
         try:
             ticker = yf.Ticker(symbol)
-            df = ticker.history(period=period)
+            df = ticker.history(period=period, auto_adjust=True)
             
             if df.empty:
                 print(f"  ⚠ No data for {symbol}")
