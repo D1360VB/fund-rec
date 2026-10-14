@@ -129,15 +129,22 @@
      * @param {Object} rec - Objeto con los datos de la recomendación.
      */
     function renderRecommendationCard(rec) {
-      // Mapeo de recomendación a colores y etiquetas
+      // Normalizamos la recomendación a un formato canónico:
+      // "STRONG_BUY" / "Strong Buy" / "strong buy" → "STRONG_BUY"
+      const key = String(rec.recommendation || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[\s-]+/g, '_'); // espacios y guiones → guion bajo
+
+      // Mapeo de recomendación normalizada a colores y etiquetas
       const styles = {
-        'Strong Buy': { bg: 'bg-green-100', text: 'text-green-800', label: 'Fuerte Compra' },
-        'Buy': { bg: 'bg-green-50', text: 'text-green-700', label: 'Compra' },
-        'Hold': { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Mantener' },
-        'Sell': { bg: 'bg-red-50', text: 'text-red-700', label: 'Venta' },
-        'Strong Sell': { bg: 'bg-red-100', text: 'text-red-800', label: 'Fuerte Venta' },
+        'STRONG_BUY':  { bg: 'bg-green-100', text: 'text-green-800', label: 'Fuerte Compra' },
+        'BUY':         { bg: 'bg-green-50',  text: 'text-green-700', label: 'Compra' },
+        'HOLD':        { bg: 'bg-gray-100',  text: 'text-gray-700',  label: 'Mantener' },
+        'SELL':        { bg: 'bg-red-50',    text: 'text-red-700',   label: 'Venta' },
+        'STRONG_SELL': { bg: 'bg-red-100',   text: 'text-red-800',   label: 'Fuerte Venta' },
       };
-      const style = styles[rec.recommendation] || styles['Hold'];
+      const style = styles[key] || styles['HOLD'];
 
       // Formatear fecha
       const date = new Date(rec.created_at).toLocaleDateString('es-ES', {
