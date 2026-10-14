@@ -1,5 +1,8 @@
 # 📈 Weekly Fund Recommendation System
 
+
+[https://d1360vb.github.io/fund-rec/](https://d1360vb.github.io/fund-rec/)
+
 An automated machine learning system that generates weekly investment recommendations (Strong Buy, Buy, Hold, Sell, Strong Sell) for popular ETFs and mutual funds.
 
 ## 🎯 Features
