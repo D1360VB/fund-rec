@@ -25,26 +25,40 @@ class FundRecommender:
             'price_to_sma50', 'price_to_sma200', 'sma50_to_sma200'
         ]
     
-    def create_labels(self, df: pd.DataFrame) -> pd.Series:
+    def create_labels(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Create labels based on future returns
-        Look ahead 1 week to determine if the fund went up/down
+        Create labels based on future 1-week returns,
+        using volatility-adjusted thresholds so that
+        each fund contributes proportionally to all 5 classes.
+        Modifica el DataFrame in-place y devuelve el mismo df
+        con las columnas 'future_return', 'weekly_vol' y 'label'.
         """
-        # Calculate future 1-week return
-        df = df.sort_values('date')
-        df['future_return'] = df.groupby('fund_symbol')['close_price'].shift(-5).pct_change(5)
-        
-        # Create recommendation labels based on future returns
+        # --- Cálculo CORRECTO del rendimiento a 5 días vista ---
+        df['future_return'] = df.groupby('fund_symbol')['close_price'].transform(
+            lambda x: x.shift(-5) / x - 1
+        )
+
+        # --- Umbrales adaptativos según la volatilidad de cada fondo ---
+        df['daily_return'] = df.groupby('fund_symbol')['close_price'].pct_change()
+        df['weekly_vol'] = df.groupby('fund_symbol')['daily_return'].transform(
+            lambda x: x.rolling(60, min_periods=20).std() * np.sqrt(5)
+        )
+
+        # Definimos 5 clases usando múltiplos de la volatilidad semanal
+        r = df['future_return']
+        v = df['weekly_vol']
+
         conditions = [
-            df['future_return'] <= -0.03,  # Strong Sell: < -3%
-            (df['future_return'] > -0.03) & (df['future_return'] <= -0.01),  # Sell: -3% to -1%
-            (df['future_return'] > -0.01) & (df['future_return'] < 0.01),   # Hold: -1% to 1%
-            (df['future_return'] >= 0.01) & (df['future_return'] < 0.03),   # Buy: 1% to 3%
-            df['future_return'] >= 0.03,   # Strong Buy: > 3%
+            r <= -1.0 * v,                       # 0: STRONG_SELL
+            (r > -1.0 * v) & (r <= -0.3 * v),    # 1: SELL
+            (r > -0.3 * v) & (r <  0.3 * v),     # 2: HOLD
+            (r >= 0.3 * v) & (r <  1.0 * v),     # 3: BUY
+            r >= 1.0 * v,                        # 4: STRONG_BUY
         ]
-        
-        labels = np.select(conditions, [0, 1, 2, 3, 4], default=2)
-        return labels
+
+        df['label'] = np.select(conditions, [0, 1, 2, 3, 4], default=2)
+
+        return df
     
     def engineer_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Create additional features"""
@@ -63,28 +77,31 @@ class FundRecommender:
     def prepare_training_data(self, metrics: List[Dict]) -> tuple:
         """Prepare data for model training"""
         df = pd.DataFrame(metrics)
-        
+
         if df.empty:
             raise ValueError("No metrics data available for training")
-        
+
+        # Ordenar una sola vez, aquí
+        df = df.sort_values(['fund_symbol', 'date']).reset_index(drop=True)
+
         # Engineer features
         df = self.engineer_features(df)
-        
-        # Create labels
-        df['label'] = self.create_labels(df)
-        
-        # Remove rows without labels (last few rows of each fund)
-        df = df.dropna(subset=['label'])
-        
+
+        # Create labels (devuelve el df completo con las columnas auxiliares)
+        df = self.create_labels(df)
+
+        # Remove rows without labels (últimas 5 filas de cada fondo)
+        df = df.dropna(subset=['label', 'future_return', 'weekly_vol'])
+
         # Select features
         X = df[self.feature_columns]
         y = df['label']
-        
+
         # Remove any remaining NaN
         mask = ~(X.isna().any(axis=1))
         X = X[mask]
         y = y[mask]
-        
+
         return X, y, df
     
     def train_model(self):
@@ -99,17 +116,20 @@ class FundRecommender:
         print(f"Preparing {len(metrics)} records...")
         X, y, _ = self.prepare_training_data(metrics)
         
+        
+        
         print(f"Training on {len(X)} samples...")
         
         # Scale features
-        X_scaled = self.scaler.fit_transform(X)
+        X_scaled = self.scaler.fit_transform(X.values)
         
         # Train Random Forest
         self.model = RandomForestClassifier(
-            n_estimators=100,
-            max_depth=10,
+            n_estimators=300,
+            max_depth=12,
             min_samples_split=20,
             min_samples_leaf=10,
+            class_weight='balanced',
             random_state=42,
             n_jobs=-1
         )
@@ -130,6 +150,9 @@ class FundRecommender:
         print("\n✓ Model trained successfully")
         print("\nTop 5 Important Features:")
         print(feature_importance.head().to_string(index=False))
+        
+        
+        
         
         return self.model
     
@@ -178,9 +201,8 @@ class FundRecommender:
     def generate_recommendations(self) -> List[Dict]:
         """Generate recommendations for all funds"""
         # Load or train model
-        if not self.load_model():
-            print("No saved model found, training new model...")
-            self.train_model()
+        print("Training model with fresh data...")
+        self.train_model()
         
         funds = self.db.get_all_funds()
         recommendations = []
