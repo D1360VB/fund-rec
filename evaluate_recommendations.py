@@ -89,6 +89,7 @@ def evaluate_all_pending(db: DatabaseManager):
             'price_after_1w': price_after,
             'actual_return_1w': actual_return,
             'is_correct': correct,
+            'is_backfill': False,
         })
         
         icon = "✓" if correct else "✗"
