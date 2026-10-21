@@ -100,24 +100,21 @@
     }
 
     /**
-     * Obtiene el rendimiento histórico. Esto es un ejemplo hipotético.
-     * Necesitarías una tabla que registre el resultado de cada recomendación
-     * después de un período (ej. 1 semana). Si no la tienes, tendrías que
-     * crearla con un script en Python.
+     * Obtiene el rendimiento histórico semanal desde la vista 'weekly_performance'.
      */
     async function fetchHistoricalPerformance() {
-      // Ejemplo: consultar una vista o tabla 'recommendation_performance'
       const { data, error } = await supabaseClient
-        .from('recommendation_performance')
-        .select('week_start, correct_predictions, total_predictions')
+        .from('weekly_performance')
+        .select('week_start, correct_predictions, total_predictions, accuracy_pct')
         .order('week_start', { ascending: true })
         .limit(12);
 
       if (error) {
-        console.warn('No se pudo cargar el rendimiento histórico:', error);
+        console.error('Error fetching performance:', error);
         return [];
       }
-      return data;
+      console.log('Performance data loaded:', data); // ← diagnóstico temporal
+      return data || [];
     }
 
     // =================================================================
@@ -189,22 +186,36 @@
      * @param {Array} performanceData - Lista de objetos con week_start, correct_predictions, total_predictions.
      */
     function renderPerformanceChart(performanceData) {
-      const ctx = document.getElementById('performance-chart').getContext('2d');
+      // Si no hay datos, mostrar mensaje sin destruir el canvas
+      const container = document.getElementById('performance-chart').parentElement;
       
-      // Si no hay datos, mostrar un mensaje
       if (!performanceData || performanceData.length === 0) {
-        document.getElementById('performance-chart').parentElement.innerHTML = 
-          '<p class="text-gray-400 text-center py-12">Datos de rendimiento no disponibles.</p>';
+        // Solo actualizar si no hay ya un mensaje
+        if (!container.querySelector('.no-data-msg')) {
+          container.innerHTML = '<p class="no-data-msg text-gray-400 text-center py-12">Datos de rendimiento no disponibles.</p>';
+        }
         return;
       }
 
+      // Limpiar mensaje previo si existía
+      const prevMsg = container.querySelector('.no-data-msg');
+      if (prevMsg) prevMsg.remove();
+
+      // Asegurar que el canvas exista
+      let canvas = container.querySelector('canvas');
+      if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.id = 'performance-chart';
+        container.appendChild(canvas);
+      }
+
+      const ctx = canvas.getContext('2d');
+      
       const labels = performanceData.map(d => {
         const date = new Date(d.week_start);
         return date.toLocaleDateString('es-ES', { month: 'short', day: 'numeric' });
       });
-      const accuracyData = performanceData.map(d => 
-        d.total_predictions > 0 ? (d.correct_predictions / d.total_predictions) * 100 : 0
-      );
+      const accuracyData = performanceData.map(d => d.accuracy_pct ?? 0);
 
       new Chart(ctx, {
         type: 'line',
@@ -213,7 +224,7 @@
           datasets: [{
             label: 'Precisión (%)',
             data: accuracyData,
-            borderColor: '#18181b', // zinc-900
+            borderColor: '#18181b',
             backgroundColor: 'rgba(24, 24, 27, 0.1)',
             tension: 0.3,
             fill: true,
@@ -231,9 +242,7 @@
               ticks: { callback: value => value + '%' }
             }
           },
-          plugins: {
-            legend: { display: false }
-          }
+          plugins: { legend: { display: false } }
         }
       });
     }
@@ -244,20 +253,30 @@
      */
     function renderPerformanceSummary(performanceData) {
       const container = document.getElementById('performance-summary');
+      
       if (!performanceData || performanceData.length === 0) {
         container.innerHTML = '';
         return;
       }
-      // Calcular precisión promedio de las últimas semanas
-      const totalCorrect = performanceData.reduce((sum, d) => sum + d.correct_predictions, 0);
-      const totalPredictions = performanceData.reduce((sum, d) => sum + d.total_predictions, 0);
+
+      const totalCorrect = performanceData.reduce((sum, d) => sum + (d.correct_predictions || 0), 0);
+      const totalPredictions = performanceData.reduce((sum, d) => sum + (d.total_predictions || 0), 0);
       const avgAccuracy = totalPredictions > 0 ? (totalCorrect / totalPredictions) * 100 : 0;
 
       container.innerHTML = `
-        <div class="flex justify-between items-center">
-          <span>Precisión promedio (últimas ${performanceData.length} semanas)</span>
-          <span class="font-semibold text-gray-900">${avgAccuracy.toFixed(1)}%</span>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <div class="text-xs text-gray-500 uppercase tracking-wide">Precisión promedio</div>
+            <div class="text-2xl font-bold text-gray-900 mt-1">${avgAccuracy.toFixed(1)}%</div>
+          </div>
+          <div>
+            <div class="text-xs text-gray-500 uppercase tracking-wide">Semanas evaluadas</div>
+            <div class="text-2xl font-bold text-gray-900 mt-1">${performanceData.length}</div>
+          </div>
         </div>
+        <p class="mt-4 text-xs text-gray-400">
+          Basado en ${totalPredictions} recomendaciones evaluadas.
+        </p>
       `;
     }
 
