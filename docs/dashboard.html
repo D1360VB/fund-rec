@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fund Rec - Análisis Avanzado</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex justify-between items-center">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">📊 Análisis Avanzado</h1>
+        <p class="text-sm text-gray-500 mt-1">Métricas detalladas del rendimiento de las recomendaciones</p>
+      </div>
+      <a href="index.html" class="text-sm text-zinc-600 hover:text-zinc-900 font-medium">
+        ← Volver al inicio
+      </a>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+    <!-- Filtro global -->
+    <div class="mb-6 flex flex-wrap gap-3 items-center">
+      <label class="text-sm text-gray-600 font-medium">Datos:</label>
+      <select id="filter-backfill" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900">
+        <option value="all">Todos</option>
+        <option value="real">Solo reales</option>
+        <option value="backfill">Solo simulados</option>
+      </select>
+      <span id="data-count" class="text-xs text-gray-400 ml-2"></span>
+    </div>
+
+    <!-- Gráfico 1: Precisión semanal -->
+    <section class="mb-8">
+      <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <h2 class="text-lg font-semibold text-gray-900 mb-1">Precisión semanal</h2>
+        <p class="text-sm text-gray-500 mb-4">% de recomendaciones correctas por semana</p>
+        <div class="h-72">
+          <canvas id="chart-weekly"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Fila de 2 gráficos -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+      <!-- Gráfico 2: Distribución de recomendaciones -->
+      <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <h2 class="text-lg font-semibold text-gray-900 mb-1">Distribución de recomendaciones</h2>
+        <p class="text-sm text-gray-500 mb-4">Cantidad de cada tipo</p>
+        <div class="h-72">
+          <canvas id="chart-distribution"></canvas>
+        </div>
+      </div>
+
+      <!-- Gráfico 3: Retorno promedio por tipo -->
+      <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <h2 class="text-lg font-semibold text-gray-900 mb-1">Retorno promedio por recomendación</h2>
+        <p class="text-sm text-gray-500 mb-4">¿Las compras ganan y las ventas pierden?</p>
+        <div class="h-72">
+          <canvas id="chart-returns"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gráfico 4: Precisión por fondo -->
+    <section class="mb-8">
+      <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <h2 class="text-lg font-semibold text-gray-900 mb-1">Precisión por fondo</h2>
+        <p class="text-sm text-gray-500 mb-4">% de aciertos de cada ETF</p>
+        <div class="h-96">
+          <canvas id="chart-funds"></canvas>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="bg-white border-t border-gray-200 mt-12">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-center text-sm text-gray-500">
+      Fund Rec · <a href="index.html" class="hover:text-zinc-900">Volver al inicio</a>
+    </div>
+  </footer>
+
+  <script>
+    // ============================================================
+    // CONFIGURACIÓN
+    // ============================================================
+    const SUPABASE_URL = 'https://ruddtbvxpizziazzhtyh.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1ZGR0YnZ4cGl6emlhenpodHloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2MjY4NjUsImV4cCI6MjA4MDIwMjg2NX0.CS9JYxdgHRdhSBE06h5e2WKQgyGjkSrEttx9f0tRLtw';
+
+    const { createClient } = supabase;
+    const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const REC_LABELS = {
+      'STRONG_BUY': 'Fuerte Compra',
+      'BUY': 'Compra',
+      'HOLD': 'Mantener',
+      'SELL': 'Venta',
+      'STRONG_SELL': 'Fuerte Venta',
+    };
+    const REC_COLORS = {
+      'STRONG_BUY': '#16a34a',
+      'BUY': '#4ade80',
+      'HOLD': '#9ca3af',
+      'SELL': '#f87171',
+      'STRONG_SELL': '#dc2626',
+    };
+
+    // Estado global
+    let allData = [];
+    let charts = {};
+
+    // ============================================================
+    // CARGA DE DATOS
+    // ============================================================
+    async function fetchData() {
+      const { data, error } = await sb
+        .from('dashboard_data')
+        .select('*')
+        .order('week_start', { ascending: true });
+      if (error) {
+        console.error('Error fetching dashboard data:', error);
+        return [];
+      }
+      return data || [];
+    }
+
+    // ============================================================
+    // FILTRADO
+    // ============================================================
+    function applyFilter(data, mode) {
+      if (mode === 'real') return data.filter(d => !d.is_backfill);
+      if (mode === 'backfill') return data.filter(d => d.is_backfill);
+      return data;
+    }
+
+    // ============================================================
+    // GRÁFICO 1: PRECISIÓN SEMANAL
+    // ============================================================
+    function renderWeekly(data) {
+      // Agrupar por semana
+      const byWeek = {};
+      data.forEach(d => {
+        if (!byWeek[d.week_start]) {
+          byWeek[d.week_start] = { correct: 0, total: 0, isBackfill: d.is_backfill };
+        }
+        byWeek[d.week_start].total += 1;
+        if (d.is_correct) byWeek[d.week_start].correct += 1;
+      });
+
+      const weeks = Object.keys(byWeek).sort();
+      const labels = weeks.map(w => {
+        const date = new Date(w);
+        return date.toLocaleDateString('es-ES', { month: 'short', day: 'numeric' });
+      });
+      const values = weeks.map(w => {
+        const s = byWeek[w];
+        return s.total > 0 ? (s.correct / s.total) * 100 : 0;
+      });
+      const pointColors = weeks.map(w => byWeek[w].isBackfill ? '#a1a1aa' : '#18181b');
+      const pointStyles = weeks.map(w => byWeek[w].isBackfill ? 'rectRot' : 'circle');
+
+      const ctx = document.getElementById('chart-weekly').getContext('2d');
+      if (charts.weekly) charts.weekly.destroy();
+      charts.weekly = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Precisión (%)',
+            data: values,
+            borderColor: '#18181b',
+            backgroundColor: 'rgba(24,24,27,0.05)',
+            tension: 0.3,
+            fill: true,
+            pointBackgroundColor: pointColors,
+            pointBorderColor: pointColors,
+            pointStyle: pointStyles,
+            pointRadius: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } } },
+          plugins: { legend: { display: false } }
+        }
+      });
+    }
+
+    // ============================================================
+    // GRÁFICO 2: DISTRIBUCIÓN
+    // ============================================================
+    function renderDistribution(data) {
+      const counts = { STRONG_BUY: 0, BUY: 0, HOLD: 0, SELL: 0, STRONG_SELL: 0 };
+      data.forEach(d => { if (counts[d.recommendation] !== undefined) counts[d.recommendation] += 1; });
+
+      const labels = Object.keys(counts).map(k => REC_LABELS[k]);
+      const values = Object.values(counts);
+      const colors = Object.keys(counts).map(k => REC_COLORS[k]);
+
+      const ctx = document.getElementById('chart-distribution').getContext('2d');
+      if (charts.distribution) charts.distribution.destroy();
+      charts.distribution = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels,
+          datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }
+          }
+        }
+      });
+    }
+
+    // ============================================================
+    // GRÁFICO 3: RETORNO PROMEDIO POR TIPO
+    // ============================================================
+    function renderReturns(data) {
+      const sums = { STRONG_BUY: [], BUY: [], HOLD: [], SELL: [], STRONG_SELL: [] };
+      data.forEach(d => {
+        if (sums[d.recommendation] !== undefined && d.actual_return_1w !== null) {
+          sums[d.recommendation].push(d.actual_return_1w * 100);
+        }
+      });
+      const labels = Object.keys(sums).map(k => REC_LABELS[k]);
+      const values = Object.values(sums).map(arr =>
+        arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
+      );
+      const colors = Object.keys(sums).map(k => REC_COLORS[k]);
+
+      const ctx = document.getElementById('chart-returns').getContext('2d');
+      if (charts.returns) charts.returns.destroy();
+      charts.returns = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Retorno promedio (%)',
+            data: values,
+            backgroundColor: colors,
+            borderRadius: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: {
+              ticks: { callback: v => v.toFixed(2) + '%' },
+              grid: { color: 'rgba(0,0,0,0.05)' }
+            }
+          }
+        }
+      });
+    }
+
+    // ============================================================
+    // GRÁFICO 4: PRECISIÓN POR FONDO
+    // ============================================================
+    function renderFunds(data) {
+      const byFund = {};
+      data.forEach(d => {
+        if (!byFund[d.fund_symbol]) byFund[d.fund_symbol] = { correct: 0, total: 0 };
+        byFund[d.fund_symbol].total += 1;
+        if (d.is_correct) byFund[d.fund_symbol].correct += 1;
+      });
+
+      const funds = Object.keys(byFund).sort();
+      const values = funds.map(f => {
+        const s = byFund[f];
+        return s.total > 0 ? (s.correct / s.total) * 100 : 0;
+      });
+
+      const ctx = document.getElementById('chart-funds').getContext('2d');
+      if (charts.funds) charts.funds.destroy();
+      charts.funds = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: funds,
+          datasets: [{
+            label: 'Precisión (%)',
+            data: values,
+            backgroundColor: '#18181b',
+            borderRadius: 4,
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } }
+          }
+        }
+      });
+    }
+
+    // ============================================================
+    // RENDER GLOBAL
+    // ============================================================
+    function renderAll(filterMode) {
+      const filtered = applyFilter(allData, filterMode);
+      document.getElementById('data-count').textContent =
+        `${filtered.length} recomendaciones evaluadas`;
+
+      if (filtered.length === 0) {
+        ['chart-weekly', 'chart-distribution', 'chart-returns', 'chart-funds'].forEach(id => {
+          const canvas = document.getElementById(id);
+          if (canvas) {
+            const ctx = canvas.getContext('2d');
+            if (charts[id.split('-')[1]]) charts[id.split('-')[1]].destroy();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+          }
+        });
+        return;
+      }
+
+      renderWeekly(filtered);
+      renderDistribution(filtered);
+      renderReturns(filtered);
+      renderFunds(filtered);
+    }
+
+    // ============================================================
+    // INICIALIZACIÓN
+    // ============================================================
+    async function init() {
+      allData = await fetchData();
+      renderAll('all');
+
+      document.getElementById('filter-backfill').addEventListener('change', e => {
+        renderAll(e.target.value);
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
